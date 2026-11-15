@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>英語ミラー</title>
+<style>
+:root{--bg:#faf8f5;--card:#fff;--ink:#222;--sub:#6b6b6b;--line:#e4dfd8;--accent:#c4577a;--ok:#2f8f5b;--ng:#c0392b;--key:#b8860b}
+@media (prefers-color-scheme:dark){:root{--bg:#17161a;--card:#222127;--ink:#ecebef;--sub:#9a98a3;--line:#34323a;--accent:#e58aa8;--ok:#5cc28a;--ng:#ef7a6c;--key:#e0b84a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 2px}
+.sub{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+button,select,label.file{font:inherit;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:12px 14px;min-height:48px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+button.ok{border-color:var(--ok);color:var(--ok);font-weight:700}
+button.ng{border-color:var(--ng);color:var(--ng);font-weight:700}
+button.on{outline:3px solid var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1 1 auto}
+.big{font-size:22px;padding:16px;width:100%}
+.meta{display:flex;justify-content:space-between;color:var(--sub);font-size:14px}
+.who{font-weight:700}
+.key{color:var(--key);font-weight:700}
+.reveal{min-height:56px;padding:12px;border:1px dashed var(--line);border-radius:10px;margin-top:10px;color:var(--sub);cursor:pointer}
+.reveal.shown{color:var(--ink);border-style:solid}
+.en{font-size:18px}
+input[type=file]{display:none}
+.list button{width:100%;text-align:left;margin:4px 0}
+.mark-ok{color:var(--ok)}.mark-ng{color:var(--ng)}
+textarea{width:100%;min-height:120px;font:13px/1.5 ui-monospace,monospace;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>英語ミラー</h1>
+  <div class="sub">Steveさんの声を1文ずつ。聞いてから、英語と日本語をめくる。音声はこの端末の中だけで使い、どこにも送りません。</div>
+
+  <section id="home">
+    <div class="card">
+      <label class="file primary" style="display:block;text-align:center">教材ファイルを読み込む（.lesson.json）
+        <input id="file" type="file" accept=".json,application/json" multiple>
+      </label>
+      <div class="sub" style="margin-top:8px">Googleドライブの「03_個人_学習 / 英語_Steve聞き取り」から選べます。一度読み込めば、次からは下の一覧から開けます。</div>
+    </div>
+    <div class="card"><div class="sub">教材</div><div id="lessonList" class="list"></div></div>
+  </section>
+
+  <section id="study" class="hidden">
+    <div class="row" style="margin:8px 0">
+      <button id="back">← 一覧</button>
+      <select id="filter">
+        <option value="all">すべての文</option>
+        <option value="key">★大事な文だけ</option>
+        <option value="steve">Steveさんの文だけ</option>
+        <option value="ng">分からなかった文だけ</option>
+      </select>
+    </div>
+    <div class="card">
+      <div class="meta"><span id="pos"></span><span id="mark"></span></div>
+      <div style="margin:6px 0"><span id="who" class="who"></span> <span id="keyMark" class="key"></span></div>
+      <div class="row">
+        <button id="play" class="primary big">▶ 聞く</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="slow">ゆっくり 0.75倍</button>
+        <button id="again">もう一度</button>
+      </div>
+      <div id="en" class="reveal en">英語を見る（タップ）</div>
+      <div id="ja" class="reveal">日本語を見る（タップ）</div>
+      <div class="row" style="margin-top:12px">
+        <button id="ng" class="ng">分からなかった</button>
+        <button id="ok" class="ok">分かった</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="prev">← 前</button>
+        <button id="next">次 →</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="sub">今日の結果（Claudeに貼ると、英語学習ノートに記録します）</div>
+      <textarea id="result" readonly></textarea>
+      <div class="row" style="margin-top:8px"><button id="copy">結果をコピー</button><button id="reset">この教材の記録を消す</button></div>
+    </div>
+  </section>
+</main>
+<audio id="audio" preload="auto"></audio>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const audio = $('audio');
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+  // 教材はIndexedDBに置く（音声入りで大きいため）。使えない端末では、その場だけ使う。
+  let db = null; const memLessons = {};
+  function openDB() {
+    return new Promise(res => {
+      try {
+        const r = indexedDB.open('english-mirror', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('lessons', { keyPath: 'id' });
+        r.onsuccess = () => { db = r.result; res(); };
+        r.onerror = () => res();
+      } catch { res(); }
+    });
+  }
+  function putLesson(l) {
+    memLessons[l.id] = l;
+    if (!db) return Promise.resolve();
+    return new Promise(res => { try { const t = db.transaction('lessons', 'readwrite'); t.objectStore('lessons').put(l); t.oncomplete = res; t.onerror = res; } catch { res(); } });
+  }
+  function allLessons() {
+    if (!db) return Promise.resolve(Object.values(memLessons));
+    return new Promise(res => { try { const q = db.transaction('lessons').objectStore('lessons').getAll(); q.onsuccess = () => res(q.result); q.onerror = () => res(Object.values(memLessons)); } catch { res(Object.values(memLessons)); } });
+  }
+
+  let lesson = null, order = [], i = 0, rate = 1, stopAt = null;
+  const marksKey = id => 'em-marks-' + id;
+  let marks = {};
+
+  async function renderList() {
+    const ls = await allLessons();
+    const box = $('lessonList'); box.innerHTML = '';
+    if (!ls.length) { box.innerHTML = '<div class="sub">まだありません。上のボタンから読み込んでください。</div>'; return; }
+    ls.sort((a, b) => a.id < b.id ? 1 : -1).forEach(l => {
+      const m = store.get(marksKey(l.id), {});
+      const ng = Object.values(m).filter(v => v === 'ng').length;
+      const done = Object.keys(m).length;
+      const b = document.createElement('button');
+      b.innerHTML = `${l.title}<br><span class="sub">${l.segments.length}文・済み${done}・分からない${ng}</span>`;
+      b.onclick = () => openLesson(l);
+      box.appendChild(b);
+    });
+  }
+
+  $('file').onchange = async e => {
+    for (const f of e.target.files) {
+      try {
+        const l = JSON.parse(await f.text());
+        if (!l.id || !l.segments || !l.audio_data) throw new Error('教材の形ではありません');
+        await putLesson(l);
+      } catch (err) { alert(f.name + ': ' + err.message); }
+    }
+    e.target.value = ''; renderList();
+  };
+
+  function openLesson(l) {
+    lesson = l; marks = store.get(marksKey(l.id), {});
+    audio.src = l.audio_data;
+    $('filter').value = store.get('em-filter', 'all');
+    buildOrder(); i = 0;
+    $('home').classList.add('hidden'); $('study').classList.remove('hidden');
+    show();
+  }
+  function buildOrder() {
+    const f = $('filter').value;
+    order = lesson.segments.map((s, k) => k).filter(k => {
+      const s = lesson.segments[k];
+      if (f === 'key') return s.key;
+      if (f === 'steve') return s.who === 'S';
+      if (f === 'ng') return marks[k] === 'ng';
+      return true;
+    });
+    if (!order.length) order = lesson.segments.map((s, k) => k);
+  }
+  function show() {
+    const k = order[i], s = lesson.segments[k];
+    $('pos').textContent = `${i + 1} / ${order.length}（全${lesson.segments.length}文の${k + 1}番）`;
+    $('who').textContent = s.who === 'S' ? 'Steve' : '自分';
+    $('keyMark').textContent = s.key ? '★大事な文' : '';
+    const m = marks[k];
+    $('mark').innerHTML = m === 'ok' ? '<span class="mark-ok">分かった</span>' : m === 'ng' ? '<span class="mark-ng">分からなかった</span>' : '';
+    for (const id of ['en', 'ja']) { $(id).classList.remove('shown'); }
+    $('en').textContent = '英語を見る（タップ）'; $('ja').textContent = '日本語を見る（タップ）';
+    $('slow').classList.toggle('on', rate !== 1);
+    renderResult();
+  }
+  function play() {
+    const s = lesson.segments[order[i]];
+    audio.playbackRate = rate; audio.currentTime = s.start; stopAt = s.end;
+    audio.play().catch(() => {});
+  }
+  audio.ontimeupdate = () => { if (stopAt !== null && audio.currentTime >= stopAt) { audio.pause(); stopAt = null; } };
+  $('play').onclick = play; $('again').onclick = play;
+  $('slow').onclick = () => { rate = rate === 1 ? 0.75 : 1; $('slow').classList.toggle('on', rate !== 1); };
+  $('en').onclick = () => { $('en').classList.add('shown'); $('en').textContent = lesson.segments[order[i]].en; };
+  $('ja').onclick = () => { $('ja').classList.add('shown'); $('ja').textContent = lesson.segments[order[i]].ja; };
+  function mark(v) { marks[order[i]] = v; store.set(marksKey(lesson.id), marks); if (i < order.length - 1) i++; show(); }
+  $('ok').onclick = () => mark('ok'); $('ng').onclick = () => mark('ng');
+  $('prev').onclick = () => { if (i > 0) { i--; show(); } };
+  $('next').onclick = () => { if (i < order.length - 1) { i++; show(); } };
+  $('filter').onchange = () => { store.set('em-filter', $('filter').value); buildOrder(); i = 0; show(); };
+  $('back').onclick = () => { audio.pause(); $('study').classList.add('hidden'); $('home').classList.remove('hidden'); renderList(); };
+  function renderResult() {
+    const d = new Date(); const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const ng = Object.entries(marks).filter(([, v]) => v === 'ng').map(([k]) => +k);
+    const ok = Object.values(marks).filter(v => v === 'ok').length;
+    const lines = [`英語ミラー結果 ${day} ${lesson.id}`, `分かった${ok}・分からなかった${ng.length}（全${lesson.segments.length}文）`];
+    ng.sort((a, b) => a - b).forEach(k => lines.push(`- ${k + 1}番: ${lesson.segments[k].en}`));
+    $('result').value = lines.join('\n');
+  }
+  $('copy').onclick = async () => { try { await navigator.clipboard.writeText($('result').value); $('copy').textContent = 'コピーしました'; setTimeout(() => $('copy').textContent = '結果をコピー', 1500); } catch { $('result').select(); } };
+  $('reset').onclick = () => { if (confirm('この教材の「分かった・分からない」の記録を消しますか？')) { marks = {}; store.set(marksKey(lesson.id), marks); buildOrder(); i = 0; show(); } };
+
+  openDB().then(renderList);
+})();
+</script>
+</body>
+</html>
